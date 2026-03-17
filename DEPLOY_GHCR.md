@@ -61,9 +61,11 @@ Como minimo:
 - `DB_SSL`
 - `DB_SSL_REJECT_UNAUTHORIZED`
 - `SECRET_KEY`
-- `EMAIL_USER`
-- `EMAIL_PASS`
+- `EMAIL_TRANSPORT` (`auto`, `resend` o `smtp`)
+- `EMAIL_FROM`
 - `BUSINESS_EMAIL`
+- `RESEND_API_KEY` para despliegues en Render Free o cualquier entorno donde prefieras envio por HTTPS
+- `EMAIL_USER` y `EMAIL_PASS` si usas SMTP
 - `USER_PENDING_STATE_ID`
 - `USER_ACTIVE_STATE_ID`
 - `DEFAULT_ROLE_ID`

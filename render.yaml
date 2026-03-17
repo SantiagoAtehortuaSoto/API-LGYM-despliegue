@@ -24,9 +24,23 @@ ngtservices:
         sync: false
       - key: SECRET_KEY
         sync: false
+      - key: EMAIL_TRANSPORT
+        value: "auto"
+      - key: EMAIL_FROM
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
       - key: EMAIL_USER
         sync: false
       - key: EMAIL_PASS
+        sync: false
+      - key: EMAIL_SERVICE
+        sync: false
+      - key: EMAIL_SMTP_HOST
+        sync: false
+      - key: EMAIL_SMTP_PORT
+        sync: false
+      - key: EMAIL_SMTP_SECURE
         sync: false
       - key: BUSINESS_EMAIL
         sync: false
