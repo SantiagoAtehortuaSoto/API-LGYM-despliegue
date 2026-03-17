@@ -25,40 +25,51 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
       - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login "${{ env.REGISTRY }}" -u "${{ github.actor }}" --password-stdin
 
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=tag
-            type=sha
-            type=raw,value=latest,enable={{is_default_branch}}
+      - name: Compute image tags
+        id: tags
+        shell: bash
+        run: |
+          IMAGE_URI="${REGISTRY}/${IMAGE_NAME}"
+          TAGS="${IMAGE_URI}:sha-${GITHUB_SHA::7}"
 
-      - name: Build and push image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          if [[ "${GITHUB_REF_TYPE}" == "branch" ]]; then
+            BRANCH_TAG="$(echo "${GITHUB_REF_NAME}" | tr '[:upper:]' '[:lower:]' | tr '/' '-')"
+            TAGS="${TAGS},${IMAGE_URI}:${BRANCH_TAG}"
+          fi
+
+          if [[ "${GITHUB_REF}" == "refs/heads/main" || "${GITHUB_REF}" == "refs/heads/master" ]]; then
+            TAGS="${TAGS},${IMAGE_URI}:latest"
+          fi
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            TAGS="${TAGS},${IMAGE_URI}:${GITHUB_REF_NAME}"
+          fi
+
+          echo "value=${TAGS}" >> "$GITHUB_OUTPUT"
+
+      - name: Build image
+        shell: bash
+        run: |
+          IFS=',' read -ra TAG_ARRAY <<< "${{ steps.tags.outputs.value }}"
+          BUILD_TAGS=()
+          for tag in "${TAG_ARRAY[@]}"; do
+            BUILD_TAGS+=(-t "$tag")
+          done
+          docker build "${BUILD_TAGS[@]}" .
+
+      - name: Push image tags
+        shell: bash
+        run: |
+          IFS=',' read -ra TAG_ARRAY <<< "${{ steps.tags.outputs.value }}"
+          for tag in "${TAG_ARRAY[@]}"; do
+            docker push "$tag"
+          done
 
       - name: Publish image summary
         run: |
           echo "Imagen publicada en: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}" >> $GITHUB_STEP_SUMMARY
           echo "Tags generados:" >> $GITHUB_STEP_SUMMARY
-          echo '${{ steps.meta.outputs.tags }}' | tr ' ' '\n' >> $GITHUB_STEP_SUMMARY
+          echo '${{ steps.tags.outputs.value }}' | tr ',' '\n' >> $GITHUB_STEP_SUMMARY
