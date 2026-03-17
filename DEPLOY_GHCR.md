@@ -12,7 +12,7 @@ La estructura mas limpia es:
 Cada repo publica su propia imagen:
 
 - Front: `ghcr.io/TU-USUARIO/LGYM-front-despliegue`
-- API: `ghcr.io/TU-USUARIO/LGYM-api`
+- API: `ghcr.io/santiagoatehortuasoto/api-lgym-despliegue`
 
 ## Lo que ya queda listo en este repo
 
@@ -47,7 +47,7 @@ git push -u origin main
 Al hacer push a `main` o `master`, GitHub Actions publicara la imagen en:
 
 ```text
-ghcr.io/TU-USUARIO/TU-REPO
+ghcr.io/santiagoatehortuasoto/api-lgym-despliegue
 ```
 
 Tambien puedes lanzarlo manualmente desde `Actions > Publish GHCR`.
@@ -80,8 +80,26 @@ docker run --rm -p 3000:3000 --env-file .env lgym-api:local
 ## Ejecutar desde GHCR
 
 ```powershell
-docker run --rm -p 3000:3000 --env-file .env ghcr.io/TU-USUARIO/LGYM-api:latest
+docker run --rm -p 3000:3000 --env-file .env ghcr.io/santiagoatehortuasoto/api-lgym-despliegue:latest
 ```
+
+## Desplegar en Render desde la imagen
+
+1. En Render, crea un `Web Service`.
+2. En `Source Code`, elige `Existing Image`.
+3. Usa esta imagen:
+
+```text
+ghcr.io/santiagoatehortuasoto/api-lgym-despliegue:latest
+```
+
+4. Si el package esta privado, agrega credenciales del registry:
+
+- Registry: `ghcr.io`
+- Username: tu usuario de GitHub
+- Password: un PAT classic con `read:packages`
+
+5. Si el package esta publico, Render puede usarlo sin credenciales.
 
 ## Healthcheck
 
