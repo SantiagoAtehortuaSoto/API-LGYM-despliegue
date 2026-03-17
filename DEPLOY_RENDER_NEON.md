@@ -23,10 +23,14 @@
   - `DB_SYNC_ALTER=false`
   - `AUTH_DEBUG=false` (cambialo temporalmente a `true` solo para diagnosticar login/token)
   - `SECRET_KEY`
-  - `EMAIL_TRANSPORT=auto`
-  - `EMAIL_FROM`
-  - `RESEND_API_KEY`
+  - `EMAIL_TRANSPORT=gmail_api` si quieres enviar con Gmail por HTTPS
+  - `EMAIL_FROM` = correo Gmail autorizado o alias configurado en esa cuenta
+  - `GMAIL_API_CLIENT_ID`
+  - `GMAIL_API_CLIENT_SECRET`
+  - `GMAIL_API_REFRESH_TOKEN`
+  - `GMAIL_API_USER=me`
   - `BUSINESS_EMAIL`
+  - `RESEND_API_KEY` solo si usaras Resend
   - `EMAIL_USER` y `EMAIL_PASS` solo si usas SMTP en local o en un plan que permita salida SMTP
   - `USER_PENDING_STATE_ID=2`
   - `USER_ACTIVE_STATE_ID=1`
@@ -41,10 +45,24 @@
 ## 4.1) Correo en Render Free
 - Desde el 6 de agosto de 2024, Render bloqueo el trafico saliente por SMTP (`25`, `465` y `587`) en servicios gratuitos.
 - Por eso, en `plan: free`, Gmail/Nodemailer por SMTP suele fallar con `ETIMEDOUT`.
-- Recomendacion: usa `RESEND_API_KEY` + `EMAIL_FROM` + `BUSINESS_EMAIL`.
+- Recomendacion si quieres seguir con Gmail: usa `EMAIL_TRANSPORT=gmail_api` con `GMAIL_API_CLIENT_ID`, `GMAIL_API_CLIENT_SECRET`, `GMAIL_API_REFRESH_TOKEN` y `EMAIL_FROM`.
+- Alternativa: usa `RESEND_API_KEY` + `EMAIL_FROM` + `BUSINESS_EMAIL`.
 - Si luego migras a un plan pago o a otro proveedor, puedes volver a SMTP con `EMAIL_USER`, `EMAIL_PASS` y opcionalmente `EMAIL_SERVICE` o `EMAIL_SMTP_HOST`.
 
-## 4.2) Diagnostico rapido de token en Render
+## 4.2) Configurar Gmail API
+- En Google Cloud, crea un proyecto y habilita `Gmail API`.
+- Crea un `OAuth Client ID` para aplicacion web o desktop.
+- Genera un refresh token con el scope `https://www.googleapis.com/auth/gmail.send`.
+- Usa en Render:
+  - `EMAIL_TRANSPORT=gmail_api`
+  - `EMAIL_FROM=Tu Nombre <tu-cuenta@gmail.com>`
+  - `GMAIL_API_CLIENT_ID=...`
+  - `GMAIL_API_CLIENT_SECRET=...`
+  - `GMAIL_API_REFRESH_TOKEN=...`
+  - `GMAIL_API_USER=me`
+- Si usas un alias en Gmail, ese alias debe estar configurado en la misma cuenta que autorizo el refresh token.
+
+## 4.3) Diagnostico rapido de token en Render
 - Si el login funciona pero las rutas autenticadas responden `No se proporciono un token`, activa temporalmente `AUTH_DEBUG=true`.
 - Con eso, el backend registrara:
   - ruta y metodo solicitados

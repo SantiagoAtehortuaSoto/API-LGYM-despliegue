@@ -10,6 +10,10 @@ const DEFAULT_SMTP_CONNECTION_TIMEOUT_MS = 10000;
 const DEFAULT_SMTP_GREETING_TIMEOUT_MS = 10000;
 const DEFAULT_SMTP_SOCKET_TIMEOUT_MS = 20000;
 const DEFAULT_RESEND_API_URL = 'https://api.resend.com/emails';
+const DEFAULT_GMAIL_TOKEN_URL = 'https://oauth2.googleapis.com/token';
+const DEFAULT_GMAIL_API_BASE_URL = 'https://gmail.googleapis.com/gmail/v1/users';
+const DEFAULT_GMAIL_API_USER = 'me';
+const GMAIL_TOKEN_EXPIRY_SKEW_MS = 60 * 1000;
 
 const parsePositiveInt = (value, fallback) => {
   const parsed = Number(value);
@@ -35,6 +39,8 @@ const resetPasswordCodes = new Map();
 
 let cachedTransporter = null;
 let warnedMissingEmailConfig = false;
+let cachedGmailAccessToken = '';
+let cachedGmailAccessTokenExpiresAt = 0;
 
 const normalizeEmailKey = (value) =>
   typeof value === 'string' ? value.trim().toLowerCase() : '';
@@ -57,7 +63,11 @@ const escapeHtml = (value) =>
 const getEmailUser = () => safeText(process.env.EMAIL_USER).trim();
 const getEmailPass = () => safeText(process.env.EMAIL_PASS).trim();
 const getEmailService = () => safeText(process.env.EMAIL_SERVICE).trim();
-const getEmailTransport = () => safeText(process.env.EMAIL_TRANSPORT).trim().toLowerCase();
+const getEmailTransport = () =>
+  safeText(process.env.EMAIL_TRANSPORT)
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, '_');
 const getSmtpHost = () => safeText(process.env.EMAIL_SMTP_HOST).trim();
 const getSmtpPort = () => parsePositiveInt(process.env.EMAIL_SMTP_PORT, 0);
 const getSmtpSecure = () => parseBoolean(process.env.EMAIL_SMTP_SECURE, getSmtpPort() === 465);
@@ -65,7 +75,18 @@ const getSmtpRequireTls = () => parseBoolean(process.env.EMAIL_SMTP_REQUIRE_TLS,
 const getSmtpIgnoreTls = () => parseBoolean(process.env.EMAIL_SMTP_IGNORE_TLS, false);
 const getResendApiKey = () => safeText(process.env.RESEND_API_KEY).trim();
 const getResendApiUrl = () => safeText(process.env.RESEND_API_URL).trim() || DEFAULT_RESEND_API_URL;
-const getFromAddress = () => safeText(process.env.EMAIL_FROM).trim() || getEmailUser() || FALLBACK_FROM;
+const getGmailApiClientId = () => safeText(process.env.GMAIL_API_CLIENT_ID).trim();
+const getGmailApiClientSecret = () => safeText(process.env.GMAIL_API_CLIENT_SECRET).trim();
+const getGmailApiRefreshToken = () => safeText(process.env.GMAIL_API_REFRESH_TOKEN).trim();
+const getGmailApiUser = () =>
+  safeText(process.env.GMAIL_API_USER).trim() || DEFAULT_GMAIL_API_USER;
+const getGmailApiTokenUrl = () =>
+  safeText(process.env.GMAIL_API_TOKEN_URL).trim() || DEFAULT_GMAIL_TOKEN_URL;
+const getGmailApiBaseUrl = () =>
+  safeText(process.env.GMAIL_API_BASE_URL).trim() || DEFAULT_GMAIL_API_BASE_URL;
+const getConfiguredFromAddress = () =>
+  safeText(process.env.EMAIL_FROM).trim() || getEmailUser() || '';
+const getFromAddress = () => getConfiguredFromAddress() || FALLBACK_FROM;
 
 const normalizeEmailList = (value) => {
   if (Array.isArray(value)) {
@@ -86,16 +107,34 @@ const toSingleOrArray = (values) => {
   return values.length === 1 ? values[0] : values;
 };
 
+const parseJsonSafely = (value) => {
+  if (!value) return null;
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+};
+
 const hasSmtpConfig = () => {
   const user = getEmailUser();
   const pass = getEmailPass();
-  return Boolean((user && pass) || getSmtpHost() || getEmailService());
+  return Boolean(getSmtpHost() || (user && pass));
 };
+
+const hasGmailApiConfig = () =>
+  Boolean(getGmailApiClientId() && getGmailApiClientSecret() && getGmailApiRefreshToken());
 
 const resolveEmailTransport = () => {
   const preferredTransport = getEmailTransport();
+  const hasGmailApi = hasGmailApiConfig();
   const hasResend = Boolean(getResendApiKey());
   const hasSmtp = hasSmtpConfig();
+
+  if (preferredTransport === 'gmail_api') {
+    return hasGmailApi ? 'gmail_api' : null;
+  }
 
   if (preferredTransport === 'resend') {
     return hasResend ? 'resend' : null;
@@ -105,6 +144,7 @@ const resolveEmailTransport = () => {
     return hasSmtp ? 'smtp' : null;
   }
 
+  if (hasGmailApi) return 'gmail_api';
   if (hasResend) return 'resend';
   if (hasSmtp) return 'smtp';
   return null;
@@ -113,8 +153,9 @@ const resolveEmailTransport = () => {
 const getMissingEmailConfigMessage = () =>
   [
     'No hay proveedor de correo configurado.',
-    'Usa RESEND_API_KEY (+ EMAIL_FROM) para envio por HTTPS,',
-    'o configura EMAIL_USER/EMAIL_PASS y opcionalmente EMAIL_SERVICE o EMAIL_SMTP_HOST.'
+    'Usa GMAIL_API_CLIENT_ID + GMAIL_API_CLIENT_SECRET + GMAIL_API_REFRESH_TOKEN para Gmail API por HTTPS,',
+    'o RESEND_API_KEY (+ EMAIL_FROM),',
+    'o configura EMAIL_USER/EMAIL_PASS y opcionalmente EMAIL_SERVICE o EMAIL_SMTP_HOST para SMTP.'
   ].join(' ');
 
 const buildSmtpTransportOptions = () => {
@@ -171,8 +212,167 @@ const buildTimeoutHint = (error) => {
   return [
     'La conexion SMTP expiro antes de completarse.',
     'Si el backend corre en Render Free, ese plan bloquea trafico saliente por los puertos 25, 465 y 587.',
-    'En ese caso usa RESEND_API_KEY + EMAIL_FROM o cambia el servicio a un plan pago.'
+    'En ese caso usa Gmail API por HTTPS o RESEND_API_KEY + EMAIL_FROM, o cambia el servicio a un plan pago.'
   ].join(' ');
+};
+
+const decodeBasicHtmlEntities = (value) =>
+  safeText(value)
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+
+const htmlToText = (value) =>
+  decodeBasicHtmlEntities(
+    safeText(value)
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/p>/gi, '\n\n')
+      .replace(/<\/h[1-6]>/gi, '\n\n')
+      .replace(/<li>/gi, '- ')
+      .replace(/<\/li>/gi, '\n')
+      .replace(/<[^>]+>/g, ' ')
+  )
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+
+const encodeBase64Url = (value) =>
+  Buffer.from(safeText(value), 'utf8')
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+
+const buildMimeMessage = (mailOptions) => {
+  const to = normalizeEmailList(mailOptions?.to);
+  const cc = normalizeEmailList(mailOptions?.cc);
+  const bcc = normalizeEmailList(mailOptions?.bcc);
+  const replyTo = normalizeEmailList(mailOptions?.replyTo);
+  const from = sanitizeHeaderValue(mailOptions?.from || getConfiguredFromAddress());
+  const subject = sanitizeHeaderValue(mailOptions?.subject);
+  const textBody = safeText(mailOptions?.text).trim() || htmlToText(mailOptions?.html);
+  const htmlBody = safeText(mailOptions?.html).trim();
+  const boundary = `lgym_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  const headers = [
+    ...(from ? [`From: ${from}`] : []),
+    ...(to.length ? [`To: ${to.join(', ')}`] : []),
+    ...(cc.length ? [`Cc: ${cc.join(', ')}`] : []),
+    ...(bcc.length ? [`Bcc: ${bcc.join(', ')}`] : []),
+    ...(replyTo.length ? [`Reply-To: ${replyTo.join(', ')}`] : []),
+    ...(subject ? [`Subject: ${subject}`] : []),
+    'MIME-Version: 1.0'
+  ];
+
+  if (htmlBody && textBody) {
+    return [
+      ...headers,
+      `Content-Type: multipart/alternative; boundary="${boundary}"`,
+      '',
+      `--${boundary}`,
+      'Content-Type: text/plain; charset="UTF-8"',
+      'Content-Transfer-Encoding: 7bit',
+      '',
+      textBody,
+      `--${boundary}`,
+      'Content-Type: text/html; charset="UTF-8"',
+      'Content-Transfer-Encoding: 7bit',
+      '',
+      htmlBody,
+      `--${boundary}--`,
+      ''
+    ].join('\r\n');
+  }
+
+  return [
+    ...headers,
+    `Content-Type: ${htmlBody ? 'text/html' : 'text/plain'}; charset="UTF-8"`,
+    'Content-Transfer-Encoding: 7bit',
+    '',
+    htmlBody || textBody
+  ].join('\r\n');
+};
+
+const buildGmailApiHint = (status, payload, stage) => {
+  const errorMessage =
+    payload?.error?.message || payload?.error_description || payload?.message || payload?.error;
+
+  if (stage === 'token' && safeText(payload?.error).trim() === 'invalid_grant') {
+    return [
+      'Google rechazo el refresh token.',
+      'Verifica que GMAIL_API_CLIENT_ID, GMAIL_API_CLIENT_SECRET y GMAIL_API_REFRESH_TOKEN pertenezcan al mismo proyecto OAuth.'
+    ].join(' ');
+  }
+
+  if (status === 403) {
+    return [
+      'Google devolvio 403 al intentar enviar por Gmail API.',
+      'Confirma que el proyecto tenga habilitada la Gmail API y que el refresh token tenga el scope https://www.googleapis.com/auth/gmail.send.'
+    ].join(' ');
+  }
+
+  if (status === 400 && errorMessage) {
+    return `Google devolvio 400: ${errorMessage}`;
+  }
+
+  return '';
+};
+
+const getGmailAccessToken = async () => {
+  if (
+    cachedGmailAccessToken &&
+    Date.now() + GMAIL_TOKEN_EXPIRY_SKEW_MS < cachedGmailAccessTokenExpiresAt
+  ) {
+    return cachedGmailAccessToken;
+  }
+
+  if (typeof fetch !== 'function') {
+    console.error(
+      `[${TAG}] fetch no esta disponible en este runtime. No se puede usar Gmail API sin soporte HTTP nativo.`
+    );
+    return '';
+  }
+
+  try {
+    const response = await fetch(getGmailApiTokenUrl(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: getGmailApiClientId(),
+        client_secret: getGmailApiClientSecret(),
+        refresh_token: getGmailApiRefreshToken(),
+        grant_type: 'refresh_token'
+      }).toString()
+    });
+
+    const rawBody = await response.text();
+    const parsedBody = parseJsonSafely(rawBody);
+
+    if (!response.ok || !parsedBody?.access_token) {
+      console.error(
+        `[${TAG}] Error obteniendo access token de Gmail API:`,
+        response.status,
+        parsedBody || rawBody
+      );
+      const hint = buildGmailApiHint(response.status, parsedBody, 'token');
+      if (hint) {
+        console.error(`[${TAG}] ${hint}`);
+      }
+      return '';
+    }
+
+    cachedGmailAccessToken = safeText(parsedBody.access_token).trim();
+    cachedGmailAccessTokenExpiresAt =
+      Date.now() + parsePositiveInt(parsedBody.expires_in, 3600) * 1000;
+
+    return cachedGmailAccessToken;
+  } catch (error) {
+    console.error(`[${TAG}] Error obteniendo access token de Gmail API:`, error);
+    return '';
+  }
 };
 
 const sendWithSmtp = async (mailOptions, contextLabel) => {
@@ -243,14 +443,7 @@ const sendWithResend = async (mailOptions, contextLabel) => {
     });
 
     const rawBody = await response.text();
-    let parsedBody = null;
-    if (rawBody) {
-      try {
-        parsedBody = JSON.parse(rawBody);
-      } catch {
-        parsedBody = null;
-      }
-    }
+    const parsedBody = parseJsonSafely(rawBody);
 
     if (!response.ok) {
       console.error(
@@ -272,6 +465,61 @@ const sendWithResend = async (mailOptions, contextLabel) => {
   }
 };
 
+const sendWithGmailApi = async (mailOptions, contextLabel) => {
+  const to = normalizeEmailList(mailOptions?.to);
+  if (to.length === 0) {
+    console.error(`[${TAG}] No hay destinatarios validos (${contextLabel}).`);
+    return false;
+  }
+
+  const accessToken = await getGmailAccessToken();
+  if (!accessToken) {
+    return false;
+  }
+
+  try {
+    const response = await fetch(
+      `${getGmailApiBaseUrl()}/${encodeURIComponent(getGmailApiUser())}/messages/send`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ raw: encodeBase64Url(buildMimeMessage(mailOptions)) })
+      }
+    );
+
+    const rawBody = await response.text();
+    const parsedBody = parseJsonSafely(rawBody);
+
+    if (!response.ok) {
+      console.error(
+        `[${TAG}] Error enviando correo (${contextLabel}) con Gmail API:`,
+        response.status,
+        parsedBody || rawBody
+      );
+      const hint = buildGmailApiHint(response.status, parsedBody, 'send');
+      if (hint) {
+        console.error(`[${TAG}] ${hint}`);
+      }
+      return false;
+    }
+
+    if (!parsedBody?.id) {
+      console.warn(
+        `[${TAG}] Gmail API respondio sin id de confirmacion (${contextLabel}).`,
+        parsedBody
+      );
+    }
+
+    return true;
+  } catch (error) {
+    console.error(`[${TAG}] Error enviando correo (${contextLabel}) con Gmail API:`, error);
+    return false;
+  }
+};
+
 const sendMailSafe = async (mailOptions, contextLabel) => {
   const transport = resolveEmailTransport();
   if (!transport) {
@@ -280,6 +528,10 @@ const sendMailSafe = async (mailOptions, contextLabel) => {
       console.warn(`[${TAG}] ${getMissingEmailConfigMessage()}`);
     }
     return false;
+  }
+
+  if (transport === 'gmail_api') {
+    return sendWithGmailApi(mailOptions, contextLabel);
   }
 
   if (transport === 'resend') {

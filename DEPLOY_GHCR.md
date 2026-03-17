@@ -61,9 +61,10 @@ Como minimo:
 - `DB_SSL`
 - `DB_SSL_REJECT_UNAUTHORIZED`
 - `SECRET_KEY`
-- `EMAIL_TRANSPORT` (`auto`, `resend` o `smtp`)
+- `EMAIL_TRANSPORT` (`auto`, `gmail_api`, `resend` o `smtp`)
 - `EMAIL_FROM`
 - `BUSINESS_EMAIL`
+- `GMAIL_API_CLIENT_ID`, `GMAIL_API_CLIENT_SECRET` y `GMAIL_API_REFRESH_TOKEN` si usas Gmail API por HTTPS
 - `RESEND_API_KEY` para despliegues en Render Free o cualquier entorno donde prefieras envio por HTTPS
 - `EMAIL_USER` y `EMAIL_PASS` si usas SMTP
 - `USER_PENDING_STATE_ID`
