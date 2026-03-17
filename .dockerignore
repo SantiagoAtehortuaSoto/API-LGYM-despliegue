@@ -1,0 +1,14 @@
+node_modules
+.git
+.github
+.env
+.env.*
+docker-compose.yml
+render.yaml
+References
+docker
+*.md
+usuarios.postman_collection.json
+test-api.html
+test-servicios-api.js
+CON

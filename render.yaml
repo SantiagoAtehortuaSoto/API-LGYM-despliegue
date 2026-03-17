@@ -1,0 +1,50 @@
+ngtservices:
+  - type: web
+    name: api-lgym
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /ping
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: NODE_ENV
+        value: "production"
+      - key: AUTH_DEBUG
+        value: "false"
+      - key: DB_SYNC_ALTER
+        value: "false"
+      - key: DB_SSL
+        value: "true"
+      - key: DB_SSL_REJECT_UNAUTHORIZED
+        value: "true"
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        sync: false
+      - key: EMAIL_USER
+        sync: false
+      - key: EMAIL_PASS
+        sync: false
+      - key: BUSINESS_EMAIL
+        sync: false
+      - key: USER_PENDING_STATE_ID
+        value: "2"
+      - key: USER_ACTIVE_STATE_ID
+        value: "1"
+      - key: DEFAULT_ROLE_ID
+        value: "33"
+      - key: ADMIN_ROLE_ID
+        value: "32"
+      - key: ADMIN_ROLE_NAME
+        value: "Administrador"
+      - key: ADMIN_USER_ID
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: CORS_ALLOW_CREDENTIALS
+        value: "false"
+      - key: DEFAULT_MEMBERSHIP_DURATION_DAYS
+        value: "30"

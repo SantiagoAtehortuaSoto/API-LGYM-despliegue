@@ -1,0 +1,38 @@
+{
+	"info": {
+		"_postman_id": "a8a0c1c0-5c0d-4b1f-8c2a-9c1e4e2b1e6d",
+		"name": "Usuarios API",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Crear Usuario",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"nombre_usuario\": \"Juan\",\n    \"apellido_usuario\": \"Perez\",\n    \"tipo_documento\": \"CC\",\n    \"documento\": 12345678,\n    \"email\": \"juan.perez@example.com\",\n    \"telefono\": 3001234567,\n    \"c_emergencia\": 3007654321,\n    \"n_emergencia\": \"Maria Rodriguez\",\n    \"fecha_nacimiento\": \"1990-01-01\",\n    \"genero\": \"Masculino\",\n    \"enfermedades\": \"Ninguna\",\n    \"contraseña\": \"password123\",\n    \"id_estado\": 1\n}"
+				},
+				"url": {
+					"raw": "http://localhost:3000/usuarios",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "3000",
+					"path": [
+						"usuarios"
+					]
+				}
+			},
+			"response": []
+		}
+	]
+}

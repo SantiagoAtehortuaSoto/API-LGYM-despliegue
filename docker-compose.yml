@@ -1,0 +1,59 @@
+name: lgym
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: lgym-db
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASS}
+
+    ports:
+      - "${DB_PORT:-5432}:5432"
+
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+    networks:
+      - lgym_net
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: lgym-api:local
+    container_name: lgym-api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      PORT: ${PORT:-3000}
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_SSL: "false"
+    ports:
+      - "${PORT:-3000}:3000"
+    networks:
+      - lgym_net
+
+networks:
+  lgym_net:
+    driver: bridge
+
+volumes:
+  pg_data:
+    name: lgym_pg_data
