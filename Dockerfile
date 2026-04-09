@@ -9,7 +9,12 @@ LABEL org.opencontainers.image.source="https://github.com/SantiagoAtehortuaSoto/
 LABEL org.opencontainers.image.description="API LGYM lista para despliegue en GHCR y Render"
 
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+RUN apk upgrade --no-cache \
+    && npm ci --omit=dev \
+    && npm cache clean --force \
+    && rm -f package-lock.json \
+    && rm -rf /root/.npm /usr/local/lib/node_modules/npm \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx
 
 COPY src ./src
 COPY scripts ./scripts
